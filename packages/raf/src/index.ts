@@ -44,6 +44,59 @@ function createRAF(
 }
 
 /**
+ * An advanced primitive creating reactive scheduled frameloops, for example [motion's frame util](https://motion.dev/docs/frame), that are automatically disposed onCleanup.
+ *
+ * The idea behind this is for more complex use cases, where you need scheduling and want to avoid potential issues arising from running more than one `requestAnimationFrame`.
+ *
+ * @see https://github.com/solidjs-community/solid-primitives/tree/main/packages/raf#createScheduledFrameloop
+ * @param schedule The function that receives the callback and handles scheduling the frameloop
+ * @param cancel The function that cancels the scheduled callback
+ * @param callback The callback to run each scheduled frame
+ * @returns Returns a signal if currently running as well as start and stop methods
+ * ```ts
+ * [running: Accessor<boolean>, start: VoidFunction, stop: VoidFunction]
+ * ```
+ *
+ * @example
+ * import { type FrameData, cancelFrame, frame } from "motion";
+ *
+ * const [running, start, stop] = createScheduledFrameloop(
+ *   callback => frame.update(callback, true),
+ *   cancelFrame,
+ *   (data: FrameData) => {
+ *     // Do something with the data.delta during the `update` phase.
+ *   },
+ * );
+ */
+function createScheduledFrameloop<
+  RequestID extends NonNullable<unknown>,
+  Callback extends (...args: Array<unknown>) => unknown,
+>(
+  schedule: (callback: Callback) => RequestID,
+  cancel: (requestID: RequestID) => void,
+  callback: Callback,
+): [running: Accessor<boolean>, start: VoidFunction, stop: VoidFunction] {
+  if (isServer) {
+    return [() => false, noop, noop];
+  }
+  const [running, setRunning] = createSignal(false);
+  let requestID: RequestID | null = null;
+
+  const start = () => {
+    if (running()) return;
+    setRunning(true);
+    requestID = schedule(callback);
+  };
+  const stop = () => {
+    setRunning(false);
+    if (requestID !== null) cancel(requestID);
+  };
+
+  onCleanup(stop);
+  return [running, start, stop];
+}
+
+/**
  * A primitive for wrapping `window.requestAnimationFrame` callback function to limit the execution of the callback to specified number of FPS.
  *
  * Keep in mind that limiting FPS is achieved by not executing a callback if the frames are above defined limit. This can lead to not consistant frame duration.
@@ -131,4 +184,4 @@ function createMs(fps: MaybeAccessor<number>, limit?: MaybeAccessor<number>): Ms
   return Object.assign(ms, { reset, running, start, stop });
 }
 
-export { createMs, createRAF, createRAF as default, targetFPS };
+export { createMs, createRAF, createScheduledFrameloop, createRAF as default, targetFPS };
